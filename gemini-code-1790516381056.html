@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Сборщик PDF</title>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    :root {
+      --bg: #000000;
+      --surface: #111111;
+      --surface-hover: #1c1c1e;
+      --border: #2c2c2e;
+      --accent: #0a84ff;
+      --text: #ffffff;
+      --text-sec: #8e8e93;
+      --danger: #ff453a;
+      --radius: 18px;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px;
+      min-height: 100vh;
+      padding-bottom: 120px; /* Место под плавающий бар */
+    }
+
+    .container {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    header p {
+      color: var(--text-sec);
+      font-size: 15px;
+    }
+
+    /* Зона загрузки */
+    .dropzone {
+      background: var(--surface);
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: var(--surface-hover);
+    }
+
+    .dropzone svg {
+      width: 40px;
+      height: 40px;
+      color: var(--accent);
+    }
+
+    .dropzone p {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .dropzone span {
+      font-size: 13px;
+      color: var(--text-sec);
+    }
+
+    .dropzone input {
+      display: none;
+    }
+
+    /* Сетка изображений */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .preview-item {
+      position: relative;
+      background: var(--surface);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 3 / 4;
+      animation: popIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.9); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.3s ease;
+    }
+
+    .preview-item:hover img {
+      transform: scale(1.05);
+    }
+
+    .page-badge {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 8px;
+    }
+
+    .delete-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(255, 69, 58, 0.9);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s;
+    }
+
+    .delete-btn:hover {
+      transform: scale(1.1);
+    }
+
+    /* Плавающий бар действий */
+    .action-bar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 32px);
+      max-width: 500px;
+      background: rgba(28, 28, 30, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 16px;
+      border-radius: 24px;
+      display: flex;
+      gap: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      transform: translate(-50%, 20px);
+    }
+
+    .action-bar.visible {
+      opacity: 1;
+      pointer-events: all;
+      transform: translate(-50%, 0);
+    }
+
+    button {
+      outline: none;
+    }
+
+    .btn-primary {
+      flex: 1;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 14px;
+      padding: 16px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .btn-primary:active {
+      background: #0071e3;
+    }
+
+    .btn-icon {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--danger);
+      border: none;
+      border-radius: 14px;
+      width: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-icon:active {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Экран загрузки */
+    .overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(255,255,255,0.1);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Сборщик PDF</h1>
+    <p>Вся магия происходит прямо на устройстве</p>
+  </header>
+
+  <label class="dropzone" id="dropzone">
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+    <p>Выбрать фото</p>
+    <span>или перетащи сюда</span>
+  </label>
+
+  <div class="preview-grid" id="grid"></div>
+</div>
+
+<div class="action-bar" id="actionBar">
+  <button class="btn-icon" id="clearBtn" title="Очистить всё">
+    <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+  </button>
+  <button class="btn-primary" id="buildBtn">
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+    <span id="btnText">Собрать PDF</span>
+  </button>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <h3 id="overlayText">Оптимизация и сборка...</h3>
+</div>
+
+<script>
+  let images = [];
+
+  const fileInput = document.getElementById('fileInput');
+  const dropzone = document.getElementById('dropzone');
+  const grid = document.getElementById('grid');
+  const actionBar = document.getElementById('actionBar');
+  const btnText = document.getElementById('btnText');
+  const buildBtn = document.getElementById('buildBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const overlay = document.getElementById('overlay');
+
+  // Drag & Drop
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, preventDefaults, false);
+  });
+
+  function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'), false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'), false);
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    handleFiles(e.dataTransfer.files);
+  }, false);
+
+  fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    fileInput.value = '';
+  });
+
+  function handleFiles(files) {
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith('image/')) {
+        images.push({
+          file: file,
+          url: URL.createObjectURL(file)
+        });
+      }
+    });
+    render();
+  }
+
+  function render() {
+    grid.innerHTML = '';
+    images.forEach((item, index) => {
+      const el = document.createElement('div');
+      el.className = 'preview-item';
+      el.innerHTML = `
+        <img src="${item.url}" alt="Скан ${index + 1}">
+        <span class="page-badge">${index + 1}</span>
+        <button class="delete-btn" onclick="removeImage(${index})">
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+      `;
+      grid.appendChild(el);
+    });
+
+    const count = images.length;
+    if (count > 0) {
+      actionBar.classList.add('visible');
+      btnText.textContent = `Собрать PDF (${count})`;
+    } else {
+      actionBar.classList.remove('visible');
+    }
+  }
+
+  window.removeImage = function(index) {
+    URL.revokeObjectURL(images[index].url);
+    images.splice(index, 1);
+    render();
+  };
+
+  clearBtn.addEventListener('click', () => {
+    images.forEach(img => URL.revokeObjectURL(img.url));
+    images = [];
+    render();
+  });
+
+  buildBtn.addEventListener('click', async () => {
+    if (images.length === 0) return;
+    
+    overlay.classList.add('active');
+
+    try {
+      // Инициализируем PDF с задержкой, чтобы отрисовался экран загрузки
+      await new Promise(r => setTimeout(r, 100)); 
+      const pdfDoc = await PDFLib.PDFDocument.create();
+
+      for (const item of images) {
+        const buffer = await item.file.arrayBuffer();
+        let pdfImage;
+
+        try {
+          if (item.file.type === 'image/png') {
+            pdfImage = await pdfDoc.embedPng(buffer);
+          } else {
+            // Пробуем нативно внедрить как JPG
+            pdfImage = await pdfDoc.embedJpg(buffer);
+          }
+        } catch (e) {
+          // Если pdf-lib не переварил HEIC, WebP или битый JPG, спасаем через Canvas
+          const img = new Image();
+          img.src = item.url;
+          await img.decode();
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          
+          const jpgDataUrl = canvas.toDataURL('image/jpeg', 0.85); // 0.85 - отличная компрессия
+          const jpgBuffer = await (await fetch(jpgDataUrl)).arrayBuffer();
+          pdfImage = await pdfDoc.embedJpg(jpgBuffer);
+        }
+
+        const page = pdfDoc.addPage([pdfImage.width, pdfImage.height]);
+        page.drawImage(pdfImage, {
+          x: 0,
+          y: 0,
+          width: pdfImage.width,
+          height: pdfImage.height,
+        });
+      }
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const downloadUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const dateStr = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+      link.download = `Document_${dateStr}.pdf`;
+      link.click();
+
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 5000);
+      
+      // Очищаем очередь после успешной сборки
+      images.forEach(img => URL.revokeObjectURL(img.url));
+      images = [];
+      render();
+
+    } catch (err) {
+      alert('Ошибка при сборке: ' + err.message);
+    } finally {
+      overlay.classList.remove('active');
+    }
+  });
+</script>
+
+</body>
+</html>
