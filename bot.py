@@ -1,5 +1,6 @@
 import io
 import asyncio
+from datetime import datetime
 from typing import Dict, List
 from PIL import Image
 
@@ -12,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
+from aiogram.enums import ParseMode
 
 BOT_TOKEN = "8588564662:AAFM0m6hqoDe3paSN7fKeBTkPNMAVdo_KAY"
 ALLOWED_USERS = {852954946}
@@ -19,21 +21,26 @@ ALLOWED_USERS = {852954946}
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Хранилище сессий: {user_id: [BytesIO, ...]}
 user_sessions: Dict[int, List[io.BytesIO]] = {}
 
 
-def get_keyboard(count: int) -> InlineKeyboardMarkup:
+def get_queue_keyboard(count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(
-                text=f"Собрать PDF ({count})",
-                callback_data="build_pdf"
-            ),
-            InlineKeyboardButton(
-                text="Сбросить",
-                callback_data="clear_queue"
-            )
-        ]]
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✨ Собрать документ ({count})",
+                    callback_data="build_pdf"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Очистить очередь",
+                    callback_data="clear_queue"
+                )
+            ]
+        ]
     )
 
 
@@ -41,19 +48,27 @@ def get_keyboard(count: int) -> InlineKeyboardMarkup:
 async def cmd_start(message: Message):
     if message.from_user.id not in ALLOWED_USERS:
         return
+
     user_sessions[message.from_user.id] = []
-    await message.answer(
-        "Присылай мне JPG/PNG изображения (как фото или как файлю).\n"
-        "Когда закончишь — нажми «Собрать PDF,»."
+    text = (
+        "👋 *Привет!*\n\n"
+        "Я помогу быстро склеить изображения в аккуратный PDF-документ.\n\n"
+        "📌 *Как пользоваться:*\n"
+        "• Отправляй JPG или PNG (как обычные фото или без сжатия файлами)\n"
+        "• Страницы будут идти строго в том порядке, в котором ты их присылаешь\n"
+        "• Нажми *«Собрать документ»*, когда все страницы загружены\n\n"
+        "_Готов к работе. Жду первые страницы..._"
     )
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN)
 
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: Message):
     if message.from_user.id not in ALLOWED_USERS:
         return
+
     user_sessions[message.from_user.id] = []
-    await message.answer("Очередь изображений очищена.")
+    await message.answer("🗑 *Очередь страниц очищена.*", parse_mode=ParseMode.MARKDOWN)
 
 
 @dp.message(F.photo | F.document)
@@ -80,9 +95,16 @@ async def handle_incoming_image(message: Message):
     user_sessions[user_id].append(image_bytes)
     count = len(user_sessions[user_id])
 
+    text = (
+        f"📥 *Страница добавлена: #{count}*\n"
+        f"Всего в очереди: `{count}` шт.\n\n"
+        f"_Присылай ещё или нажми на кнопку сборки._"
+    )
+
     await message.answer(
-        f"Добавлено странис: {count}",
-        reply_markup=get_keyboard(count)
+        text,
+        reply_markup=get_queue_keyboard(count),
+        parse_mode=ParseMode.MARKDOWN
     )
 
 
@@ -90,7 +112,10 @@ async def handle_incoming_image(message: Message):
 async def cb_clear(callback: CallbackQuery):
     user_id = callback.from_user.id
     user_sessions[user_id] = []
-    await callback.message.edit_text("Очередь сброшена. Присылай новые фото.")
+    await callback.message.edit_text(
+        "🗑 *Очередь сброшена.*\nМожешь присылать страницы заново.",
+        parse_mode=ParseMode.MARKDOWN
+    )
     await callback.answer()
 
 
@@ -100,18 +125,33 @@ async def cb_build_pdf(callback: CallbackQuery):
     images_data = user_sessions.get(user_id, [])
 
     if not images_data:
-        await callback.answer("Сначала отправь хотя бы одно изображение.", show_alert=True)
+        await callback.answer("⚠️ Очередь пуста. Сначала отправь фото.", show_alert=True)
         return
 
-    await callback.message.edit_text("Формирую PDF...")
+    await callback.message.edit_text(
+        "⚙️ *Собираю PDF-документ...*\n_Оптимизирую страницы и склеиваю слои._",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
     loop = asyncio.get_running_loop()
     pdf_bytes = await loop.run_in_executor(None, compile_pdf, images_data)
 
-    document = BufferedInputFile(pdf_bytes.getvalue(), filename="document.pdf")
+    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = f"scan_{date_str}.pdf"
+
+    document = BufferedInputFile(pdf_bytes.getvalue(), filename=filename)
+
+    caption = (
+        f"📄 *Документ успешно сформирован!*\n\n"
+        f"• *Файл:* `{filename}`\n"
+        f"• *Количество страниц:* `{len(images_data)}`\n"
+        f"• *Статус:* готов к печати или отправке"
+    )
+
     await callback.message.answer_document(
         document=document,
-        caption=f"Готово! Страниц: {len(images_data)}"
+        caption=caption,
+        parse_mode=ParseMode.MARKDOWN
     )
 
     user_sessions[user_id] = []
