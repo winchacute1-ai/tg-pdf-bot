@@ -21,7 +21,6 @@ ALLOWED_USERS = {852954946}
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Хранилище сессий: {user_id: [BytesIO, ...]}
 user_sessions: Dict[int, List[io.BytesIO]] = {}
 
 
@@ -136,7 +135,7 @@ async def cb_build_pdf(callback: CallbackQuery):
     loop = asyncio.get_running_loop()
     pdf_bytes = await loop.run_in_executor(None, compile_pdf, images_data)
 
-    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    date_str = datetime.now().strftime("%Y-%m-%d-%H-%M")
     filename = f"scan_{date_str}.pdf"
 
     document = BufferedInputFile(pdf_bytes.getvalue(), filename=filename)
